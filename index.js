@@ -8,6 +8,7 @@ import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import cron from 'node-cron';
 import express from 'express';
+import https from 'https';
 import { connectDB } from './config/database.js';
 import { User } from './models/User.js';
 import { loadCommands, handleCommand } from './handlers/commandHandler.js';
@@ -24,9 +25,13 @@ app.listen(PORT, () => {
   console.log(`🌐 Health check server listening on port ${PORT}`);
 });
 
-// Cron Job: Keeps Render awake and logs system status
-cron.schedule('*/14 * * * *', () => {
-  console.log('⏰ Keep-Alive Ping: Bot active, server awake.');
+// Self-ping to keep Render awake
+cron.schedule('*/12 * * * *', () => {
+  https.get('https://anvrs-bot.onrender.com', (res) => {
+    console.log(`⏰ Keep-Alive Ping Sent! Status: ${res.statusCode}`);
+  }).on('error', (err) => {
+    console.error('❌ Ping failed:', err.message);
+  });
 });
 
 async function startBot() {
@@ -38,8 +43,12 @@ async function startBot() {
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
-    logger: pino({ level: 'error' }),
-    syncFullHistory: false
+    logger: pino({ level: 'fatal' }), // Suppress Signal decryption log floods
+    syncFullHistory: false,
+    getMessage: async (key) => {
+      // Prevents crash when Baileys requests missing session keys
+      return { conversation: '' };
+    }
   });
 
   sock.ev.on('connection.update', (update) => {
