@@ -9,60 +9,49 @@ const __dirname = path.dirname(__filename);
 export default {
   name: 'help',
   description: 'Displays active universe commands',
-  async execute(sock, message, args) {
-    const { from } = message;
+  async execute(sock, message, args, context = {}) {
+    try {
+      const { from } = message;
+      let activeMode = context.activeMode || 'dbz';
 
-    // Fetch active game module from Group database
-    const group = await Group.findOne({ jid: from }) || { activeGame: 'dbz' };
-    const activeMode = group.activeGame || 'dbz';
-
-    // Config map for all 4 universes
-    const universeConfig = {
-      dbz: {
-        folder: 'dbz',
-        image: 'dragon ball.jpg',
-        header: '🐉 DRAGON BALL UNIVERSE'
-      },
-      naruto: {
-        folder: 'naruto',
-        image: 'Naruto Anime.jpg',
-        header: '🍃 NARUTO UNIVERSE'
-      },
-      demonslayer: {
-        folder: 'demonslayer',
-        image: 'Demon Slayer.jpg',
-        header: '⚔️ DEMON SLAYER UNIVERSE'
-      },
-      bleach: {
-        folder: 'bleach',
-        image: 'Bleach.jpg',
-        header: '🌸 BLEACH UNIVERSE'
+      if (!context.activeMode) {
+        const group = await Group.findOne({ jid: from });
+        if (group?.activeGame) activeMode = group.activeGame;
       }
-    };
 
-    const config = universeConfig[activeMode] || universeConfig.dbz;
+      const universeConfig = {
+        dbz: { folder: 'dbz', image: 'dragon ball.jpg', header: '🐉 DRAGON BALL UNIVERSE' },
+        naruto: { folder: 'naruto', image: 'Naruto Anime.jpg', header: '🍃 NARUTO UNIVERSE' },
+        demonslayer: { folder: 'demonslayer', image: 'Demon Slayer.jpg', header: '⚔️ DEMON SLAYER UNIVERSE' },
+        bleach: { folder: 'bleach', image: 'Bleach.jpg', header: '🌸 BLEACH UNIVERSE' }
+      };
 
-    const getCommands = (dirName) => {
-      const dirPath = path.join(__dirname, `../../commands/${dirName}`);
-      if (!fs.existsSync(dirPath)) return [];
-      return fs.readdirSync(dirPath).filter(f => f.endsWith('.js')).map(f => f.replace('.js', ''));
-    };
+      const config = universeConfig[activeMode] || universeConfig.dbz;
 
-    const sysCmds = getCommands('system');
-    const gameCmds = getCommands(config.folder);
+      const getCommands = (dirName) => {
+        const dirPath = path.resolve(__dirname, `../${dirName}`);
+        if (!fs.existsSync(dirPath)) return [];
+        return fs.readdirSync(dirPath).filter(f => f.endsWith('.js')).map(f => f.replace('.js', ''));
+      };
 
-    let menu = `*— ${config.header} —*\n\n`;
-    menu += `⚙️ *SYSTEM COMMANDS*\n` + sysCmds.map(c => `• #${c}`).join('\n') + `\n\n`;
-    menu += `🔥 *GAME COMMANDS (${activeMode.toUpperCase()})*\n` + gameCmds.map(c => `• #${c}`).join('\n') + `\n\n`;
-    menu += `_Type any command with '#' to execute._`;
+      const sysCmds = getCommands('system');
+      const gameCmds = getCommands(config.folder);
 
-    const imagePath = path.join(__dirname, `../../assets/${config.image}`);
+      let menu = `*— ${config.header} —*\n\n`;
+      menu += `⚙️ *SYSTEM COMMANDS*\n` + (sysCmds.length ? sysCmds.map(c => `• #${c}`).join('\n') : 'None') + `\n\n`;
+      menu += `🔥 *GAME COMMANDS (${activeMode.toUpperCase()})*\n` + (gameCmds.length ? gameCmds.map(c => `• #${c}`).join('\n') : 'None') + `\n\n`;
+      menu += `_Type any command with '#' to execute._`;
 
-    if (fs.existsSync(imagePath)) {
-      const imageBuffer = fs.readFileSync(imagePath);
-      await sock.sendMessage(from, { image: imageBuffer, caption: menu });
-    } else {
-      await sock.sendMessage(from, { text: menu });
+      const imagePath = path.resolve(__dirname, `../../assets/${config.image}`);
+
+      if (fs.existsSync(imagePath)) {
+        const imageBuffer = fs.readFileSync(imagePath);
+        await sock.sendMessage(from, { image: imageBuffer, caption: menu });
+      } else {
+        await sock.sendMessage(from, { text: menu });
+      }
+    } catch (err) {
+      console.error('❌ Error executing #help:', err);
     }
   }
 };

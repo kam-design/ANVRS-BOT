@@ -22,6 +22,8 @@ export const loadCommands = async () => {
   gameCommands.bleach.clear();
 
   const commandsPath = path.join(__dirname, '../commands');
+  if (!fs.existsSync(commandsPath)) return;
+  
   const categories = fs.readdirSync(commandsPath);
 
   for (const category of categories) {
@@ -37,17 +39,8 @@ export const loadCommands = async () => {
 
         if (!command?.name) continue;
 
-        if (category === 'system') {
-          systemCommands.set(command.name, command);
-        } else if (category === 'dbz') {
-          gameCommands.dbz.set(command.name, command);
-        } else if (category === 'naruto') {
-          gameCommands.naruto.set(command.name, command);
-        } else if (category === 'demonslayer') {
-          gameCommands.demonslayer.set(command.name, command);
-        } else if (category === 'bleach') {
-          gameCommands.bleach.set(command.name, command);
-        }
+        if (category === 'system') systemCommands.set(command.name, command);
+        else if (gameCommands[category]) gameCommands[category].set(command.name, command);
       }
     }
   }
@@ -55,52 +48,49 @@ export const loadCommands = async () => {
 };
 
 export const handleCommand = async (sock, message, user) => {
-  const { text, from } = message;
-  if (!text) return;
+  try {
+    const { text, from } = message;
+    if (!text) return;
 
-  // 1. Prefixless Maya AI Trigger Check
-  if (text.toLowerCase().startsWith('maya')) {
-    const rawPrompt = text.replace(/^maya\s*/i, '').trim();
-    const mayaCommand = systemCommands.get('maya');
+    // 1. Maya AI Check
+    if (text.toLowerCase().startsWith('maya')) {
+      const rawPrompt = text.replace(/^maya\s*/i, '').trim();
+      const mayaCommand = systemCommands.get('maya');
 
-    if (mayaCommand) {
-      const args = rawPrompt ? rawPrompt.split(/ +/) : [];
-      let group = await Group.findOne({ jid: from });
-      const activeMode = group ? group.activeGame : 'dbz';
-      await mayaCommand.execute(sock, message, args, { user, activeMode });
+      if (mayaCommand) {
+        const args = rawPrompt ? rawPrompt.split(/ +/) : [];
+        let group = await Group.findOne({ jid: from });
+        const activeMode = group ? group.activeGame : 'dbz';
+        await mayaCommand.execute(sock, message, args, { user, activeMode });
+        return;
+      }
+    }
+
+    // 2. Prefix Check
+    if (!text.startsWith('#')) return;
+
+    const args = text.slice(1).trim().split(/ +/);
+    const commandName = args.shift().toLowerCase();
+
+    // Fetch or initialize group mode safely
+    let group = await Group.findOne({ jid: from });
+    if (!group) {
+      group = await Group.create({ jid: from, activeGame: 'dbz' });
+    }
+    const activeMode = group.activeGame || 'dbz';
+
+    // 3. System Commands (#help, #selectgame, etc.)
+    if (systemCommands.has(commandName)) {
+      await systemCommands.get(commandName).execute(sock, message, args, { user, activeMode });
       return;
     }
-  }
 
-  // 2. Standard Prefix Check for All Other Commands
-  if (!text.startsWith('#')) return;
-
-  const args = text.slice(1).trim().split(/ +/);
-  const commandName = args.shift().toLowerCase();
-
-  // 3. System Commands (#wallpaper, #music, #hentai, #selectgame, etc.)
-  if (systemCommands.has(commandName)) {
-    let group = await Group.findOne({ jid: from });
-    const activeMode = group ? group.activeGame : 'dbz';
-    await systemCommands.get(commandName).execute(sock, message, args, { user, activeMode });
-    return;
-  }
-
-  // 4. Fetch Group Active Game
-  let group = await Group.findOne({ jid: from });
-  if (!group) {
-    group = await Group.create({ jid: from, activeGame: 'dbz' });
-  }
-
-  const activeMode = group.activeGame;
-  const activeMap = gameCommands[activeMode];
-
-  // 5. Execute Active Game Command
-  if (activeMap && activeMap.has(commandName)) {
-    await activeMap.get(commandName).execute(sock, message, args, { user, activeMode });
-  } else {
-    await sock.sendMessage(from, { 
-      text: `⚠️ Command \`#${commandName}\` is not available in current mode (*${activeMode.toUpperCase()}*).` 
-    });
+    // 4. Active Game Module Commands
+    const activeMap = gameCommands[activeMode];
+    if (activeMap && activeMap.has(commandName)) {
+      await activeMap.get(commandName).execute(sock, message, args, { user, activeMode });
+    }
+  } catch (err) {
+    console.error('❌ Error in handleCommand:', err);
   }
 };
