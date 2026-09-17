@@ -6,9 +6,28 @@ import 'dotenv/config';
 import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
+import cron from 'node-cron';
+import express from 'express';
 import { connectDB } from './config/database.js';
 import { User } from './models/User.js';
 import { loadCommands, handleCommand } from './handlers/commandHandler.js';
+
+// Express Web Server for Render Health Checks
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('ANVRS_BOT is active and running!');
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Health check server listening on port ${PORT}`);
+});
+
+// Cron Job: Keeps Render awake and logs system status
+cron.schedule('*/14 * * * *', () => {
+  console.log('⏰ Keep-Alive Ping: Bot active, server awake.');
+});
 
 async function startBot() {
   await connectDB();
@@ -47,7 +66,6 @@ async function startBot() {
       const msg = m.messages[0];
       if (!msg || !msg.message || msg.key.fromMe) return;
 
-      // FIX: Preserve group/chat remote JID for replies
       const from = msg.key.remoteJid; 
       const sender = msg.key.participant || msg.key.remoteJid;
       const pushName = msg.pushName || 'User';
@@ -64,7 +82,6 @@ async function startBot() {
 
       console.log(`[MSG] Chat: ${from} | Sender: ${sender} | Text: "${text}"`);
 
-      // MongoDB Auto-Registration
       let user = await User.findOne({ jid: sender });
       if (!user) {
         user = await User.create({ jid: sender, name: pushName });
